@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajedrez Interactivo Profesional</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chess.js para la lógica de ajedrez robusta -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Outfit', sans-serif; }
+        .chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            grid-template-rows: repeat(8, minmax(0, 1fr));
+            width: min(85vw, 520px);
+            height: min(85vw, 520px);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 4px solid #334155;
+        }
+        .square {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: min(8vw, 42px);
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            transition: background-color 0.15s ease;
+        }
+        .square.light { background-color: #f1f5f9; }
+        .square.dark { background-color: #64748b; }
+        .square.selected { background-color: #facc15 !important; }
+        .square.highlight::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: rgba(16, 185, 129, 0.6);
+        }
+        .square.highlight-capture::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid rgba(239, 68, 68, 0.7);
+            border-radius: 0.25rem;
+        }
+        .piece {
+            transition: transform 0.1s ease;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+        }
+        .piece:hover { transform: scale(1.08); }
+        .clock-warning { animation: pulse 1s infinite; color: #f43f5e !important; border-color: #f43f5e !important; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between">
+
+    <header class="bg-slate-800 border-b border-slate-700 py-4 px-6 shadow-md">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-chess text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">ChessMaster Pro</h1>
+                    <p class="text-xs text-slate-400">Juega, aprende y desafía a la inteligencia artificial con relojes</p>
+                </div>
+            </div>
+            <!-- Controles de Modo y Juego -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button id="btnModePvP" onclick="setGameMode('pvp')" class="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white shadow transition hover:bg-indigo-500">
+                    <i class="fa-solid fa-user-group mr-2"></i>Vs Jugador
+                </button>
+                <button id="btnModeAI" onclick="setGameMode('ai')" class="px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600">
+                    <i class="fa-solid fa-robot mr-2"></i>Vs IA
+                </button>
+                <button onclick="resetGame()" class="px-4 py-2 text-sm font-medium rounded-lg bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition">
+                    <i class="fa-solid fa-rotate-right mr-2"></i>Reiniciar
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-6xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        
+        <!-- Panel Izquierdo / Tablero de Ajedrez -->
+        <div class="lg:col-span-2 flex flex-col items-center justify-center bg-slate-800/50 p-4 md:p-6 rounded-2xl border border-slate-700 shadow-xl backdrop-blur">
+            
+            <!-- Info del Jugador Superior (Negras o IA) -->
+            <div class="w-full max-w-[520px] flex justify-between items-center mb-3 px-1">
+                <div class="flex items-center gap-2">
+                    <div id="blackPlayerAvatar" class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-slate-300 border border-slate-600">N</div>
+                    <div>
+                        <span id="blackPlayerName" class="font-semibold text-sm">Negras</span>
+                        <div id="blackCaptured" class="text-xs text-slate-400 flex gap-1 mt-0.5 min-h-[16px]"></div>
+                    </div>
+                </div>
+                <div id="blackTimer" class="px-3 py-1 bg-slate-900 rounded-lg text-sm font-mono border border-slate-700 text-slate-300 font-bold tracking-wider">05:00</div>
+            </div>
+
+            <!-- Tablero Gráfico -->
+            <div id="chessboard" class="chessboard"></div>
+
+            <!-- Info del Jugador Inferior (Blancas) -->
+            <div class="w-full max-w-[520px] flex justify-between items-center mt-3 px-1">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-indigo-600/30 flex items-center justify-center font-bold text-indigo-300 border border-indigo-500/40">B</div>
+                    <div>
+                        <span id="whitePlayerName" class="font-semibold text-sm">Blancas (Tú)</span>
+                        <div id="whiteCaptured" class="text-xs text-slate-400 flex gap-1 mt-0.5 min-h-[16px]"></div>
+                    </div>
+                </div>
+                <div id="whiteTimer" class="px-3 py-1 bg-slate-900 rounded-lg text-sm font-mono border border-slate-700 text-slate-300 font-bold tracking-wider">05:00</div>
+            </div>
+        </div>
+
+        <!-- Panel Derecho / Información, Historial y Controles IA -->
+        <div class="bg-slate-800/80 p-5 rounded-2xl border border-slate-700 shadow-xl flex flex-col gap-4 h-full max-h-[660px]">
+            
+            <!-- Estado de la Partida -->
+            <div class="bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/50">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Estado de Partida</h3>
+                <div id="gameStatus" class="text-base font-bold text-indigo-400">Turno de las Blancas</div>
+                <div id="gameSubStatus" class="text-xs text-slate-400 mt-0.5">Selecciona una pieza para ver movimientos legales</div>
+            </div>
+
+            <!-- Selector de Control de Tiempo -->
+            <div class="bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/50">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Control de Tiempo</h3>
+                    <button onclick="toggleTimerPause()" id="btnPauseTimer" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                        <i class="fa-solid fa-pause mr-1"></i>Pausar
+                    </button>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5 text-xs">
+                    <button onclick="setTimeControl(1, 0)" id="tc1" class="py-1.5 font-medium rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition">1m</button>
+                    <button onclick="setTimeControl(3, 0)" id="tc3" class="py-1.5 font-medium rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition">3m</button>
+                    <button onclick="setTimeControl(5, 0)" id="tc5" class="py-1.5 font-medium rounded-lg bg-indigo-600 text-white transition">5m</button>
+                    <button onclick="setTimeControl(10, 0)" id="tc10" class="py-1.5 font-medium rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition">10m</button>
+                </div>
+            </div>
+
+            <!-- Selector de Dificultad IA (Visible sólo en modo IA) -->
+            <div id="aiSettings" class="hidden flex flex-col gap-2 bg-slate-900/60 p-3.5 rounded-xl border border-slate-700/50">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Dificultad IA</h3>
+                <div class="grid grid-cols-3 gap-2 mt-0.5">
+                    <button onclick="setAIDifficulty(1)" id="diff1" class="py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white transition">Principiante</button>
+                    <button onclick="setAIDifficulty(2)" id="diff2" class="py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600">Intermedio</button>
+                    <button onclick="setAIDifficulty(3)" id="diff3" class="py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600">Avanzado</button>
+                </div>
+            </div>
+
+            <!-- Historial de Movimientos -->
+            <div class="flex flex-col flex-grow overflow-hidden bg-slate-900/60 rounded-xl border border-slate-700/50 p-3.5 min-h-[120px]">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Historial</h3>
+                <div id="moveHistory" class="flex-grow overflow-y-auto space-y-1 pr-1 font-mono text-xs text-slate-300 custom-scroll">
+                    <!-- Se llena dinámicamente -->
+                </div>
+            </div>
+
+            <!-- Botones de Acción Rápida -->
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="undoMove()" class="py-2 px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-xl transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-undo"></i> Deshacer
+                </button>
+                <button onclick="openConfigModal()" class="py-2 px-3 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white text-xs font-medium rounded-xl transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-gear"></i> Modalidad
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal de Configuración Inicial / Cambio de Modalidad y Tiempo -->
+    <div id="configModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 p-6 sm:p-8 rounded-2xl max-w-md w-full shadow-2xl space-y-6">
+            <div class="text-center">
+                <div class="w-14 h-14 bg-indigo-600/20 text-indigo-400 rounded-2xl flex items-center justify-center text-2xl mx-auto mb-3 border border-indigo-500/30 shadow-lg">
+                    <i class="fa-solid fa-chess-board"></i>
+                </div>
+                <h2 class="text-2xl font-bold tracking-wide text-white">Nueva Partida</h2>
+                <p class="text-xs text-slate-400 mt-1">Configura el modo de juego y el tiempo por jugador</p>
+            </div>
+
+            <!-- Sección: Modalidad -->
+            <div class="space-y-2">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Seleccionar Modalidad</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button type="button" onclick="selectModalMode('pvp')" id="modalBtnPvP" class="p-3 rounded-xl border border-indigo-500 bg-indigo-600/20 text-white flex flex-col items-center gap-2 transition hover:bg-indigo-600/30">
+                        <i class="fa-solid fa-user-group text-xl text-indigo-400"></i>
+                        <span class="text-sm font-semibold">Vs Jugador</span>
+                    </button>
+                    <button type="button" onclick="selectModalMode('ai')" id="modalBtnAI" class="p-3 rounded-xl border border-slate-700 bg-slate-900/60 text-slate-300 flex flex-col items-center gap-2 transition hover:bg-slate-700/50">
+                        <i class="fa-solid fa-robot text-xl text-slate-400"></i>
+                        <span class="text-sm font-semibold">Vs IA</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sección: Dificultad IA (Condicional) -->
+            <div id="modalAiSettings" class="hidden space-y-2">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Nivel de la Inteligencia Artificial</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" onclick="selectModalDiff(1)" id="modalDiff1" class="py-2 text-xs font-medium rounded-xl border border-indigo-500 bg-indigo-600 text-white transition">Principiante</button>
+                    <button type="button" onclick="selectModalDiff(2)" id="modalDiff2" class="py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 transition">Intermedio</button>
+                    <button type="button" onclick="selectModalDiff(3)" id="modalDiff3" class="py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 transition">Avanzado</button>
+                </div>
+            </div>
+
+            <!-- Sección: Control de Tiempo -->
+            <div class="space-y-2">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">Tiempo por Jugador</label>
+                <div class="grid grid-cols-4 gap-2">
+                    <button type="button" onclick="selectModalTime(1)" id="modalTime1" class="py-2.5 rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 font-medium text-xs transition hover:bg-slate-700">1 Min</button>
+                    <button type="button" onclick="selectModalTime(3)" id="modalTime3" class="py-2.5 rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 font-medium text-xs transition hover:bg-slate-700">3 Min</button>
+                    <button type="button" onclick="selectModalTime(5)" id="modalTime5" class="py-2.5 rounded-xl border border-indigo-500 bg-indigo-600 text-white font-medium text-xs transition">5 Min</button>
+                    <button type="button" onclick="selectModalTime(10)" id="modalTime10" class="py-2.5 rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 font-medium text-xs transition hover:bg-slate-700">10 Min</button>
+                </div>
+            </div>
+
+            <button onclick="applyConfigurationAndStart()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm rounded-xl transition shadow-lg shadow-indigo-600/40 text-white">
+                Comenzar Partida
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal de Fin de Partida / Notificación -->
+    <div id="gameOverModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-sm w-full text-center shadow-2xl animate-fade-in">
+            <div id="gameOverIcon" class="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 border border-amber-500/30">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+            <h3 id="gameOverTitle" class="text-xl font-bold mb-1">¡Jaque Mate!</h3>
+            <p id="gameOverMessage" class="text-sm text-slate-300 mb-6">Las blancas han ganado la partida.</p>
+            <button onclick="resetGame()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 font-medium text-sm rounded-xl transition shadow-lg shadow-indigo-600/30">
+                Nueva Partida
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal de Reglas / Ayuda -->
+    <div id="helpModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-md w-full shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-indigo-400"><i class="fa-solid fa-book-open mr-2"></i>Guía Rápida de Ajedrez</h3>
+                <button onclick="closeHelpModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="text-xs text-slate-300 space-y-2.5 max-h-[60vh] overflow-y-auto pr-2">
+                <p><strong>Relojes de Ajedrez:</strong> Cada jugador dispone de un tiempo inicial configurado. El tiempo se descuenta en tu turno. Si tu reloj llega a 00:00, pierdes por tiempo.</p>
+                <p><strong>Movimientos:</strong> Haz clic en una pieza propia para ver sus casillas válidas resaltadas en verde (movimiento) o rojo (captura).</p>
+                <p><strong>Modo Vs IA:</strong> Juegas con las piezas blancas contra la computadora en diferentes niveles de dificultad.</p>
+            </div>
+            <button onclick="closeHelpModal()" class="mt-5 w-full py-2 bg-slate-700 hover:bg-slate-600 font-medium text-xs rounded-xl transition">Entendido</button>
+        </div>
+    </div>
+
+    <script>
+        // Símbolos y mapeo de piezas UTF-8
+        const pieceSymbols = {
+            'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
+            'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔'
+        };
+
+        let game = new Chess();
+        let gameMode = 'pvp'; // 'pvp' o 'ai'
+        let aiDifficulty = 1;
+        let selectedSquare = null;
+        let legalMoves = [];
+
+        // Variables de Reloj
+        let whiteTimeSeconds = 300; // 5 minutos por defecto
+        let blackTimeSeconds = 300;
+        let initialTimeMinutes = 5;
+        let timerInterval = null;
+        let isTimerRunning = false;
+        let isTimerPaused = false;
+
+        // Variables temporales del Modal de Configuración
+        let tempSelectedMode = 'pvp';
+        let tempSelectedDiff = 1;
+        let tempSelectedTime = 5;
+
+        // Inicializar tablero al cargar la página
+        window.onload = function() {
+            renderBoard();
+            updateGameStatus();
+            updateTimerDisplay();
+        };
+
+        // Funciones del Modal de Configuración Inicial
+        function openConfigModal() {
+            if (timerInterval) clearInterval(timerInterval);
+            isTimerRunning = false;
+            document.getElementById('configModal').classList.remove('hidden');
+        }
+
+        function selectModalMode(mode) {
+            tempSelectedMode = mode;
+            const btnPvP = document.getElementById('modalBtnPvP');
+            const btnAI = document.getElementById('modalBtnAI');
+            const aiSet = document.getElementById('modalAiSettings');
+
+            if (mode === 'pvp') {
+                btnPvP.className = "p-3 rounded-xl border border-indigo-500 bg-indigo-600/20 text-white flex flex-col items-center gap-2 transition hover:bg-indigo-600/30";
+                btnAI.className = "p-3 rounded-xl border border-slate-700 bg-slate-900/60 text-slate-300 flex flex-col items-center gap-2 transition hover:bg-slate-700/50";
+                aiSet.classList.add('hidden');
+            } else {
+                btnAI.className = "p-3 rounded-xl border border-indigo-500 bg-indigo-600/20 text-white flex flex-col items-center gap-2 transition hover:bg-indigo-600/30";
+                btnPvP.className = "p-3 rounded-xl border border-slate-700 bg-slate-900/60 text-slate-300 flex flex-col items-center gap-2 transition hover:bg-slate-700/50";
+                aiSet.classList.remove('hidden');
+            }
+        }
+
+        function selectModalDiff(diff) {
+            tempSelectedDiff = diff;
+            for (let i = 1; i <= 3; i++) {
+                const btn = document.getElementById(`modalDiff${i}`);
+                if (i === diff) {
+                    btn.className = "py-2 text-xs font-medium rounded-xl border border-indigo-500 bg-indigo-600 text-white transition";
+                } else {
+                    btn.className = "py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 transition";
+                }
+            }
+        }
+
+        function selectModalTime(minutes) {
+            tempSelectedTime = minutes;
+            [1, 3, 5, 10].forEach(m => {
+                const btn = document.getElementById(`modalTime${m}`);
+                if (m === minutes) {
+                    btn.className = "py-2.5 rounded-xl border border-indigo-500 bg-indigo-600 text-white font-medium text-xs transition";
+                } else {
+                    btn.className = "py-2.5 rounded-xl border border-slate-700 bg-slate-950/60 text-slate-300 font-medium text-xs transition hover:bg-slate-700";
+                }
+            });
+        }
+
+        function applyConfigurationAndStart() {
+            // Aplicar selecciones al juego principal
+            setGameModeDirect(tempSelectedMode);
+            setAIDifficultyDirect(tempSelectedDiff);
+            setTimeControlDirect(tempSelectedTime);
+
+            document.getElementById('configModal').classList.add('hidden');
+            resetGame();
+        }
+
+        function setGameModeDirect(mode) {
+            gameMode = mode;
+            const btnPvP = document.getElementById('btnModePvP');
+            const btnAI = document.getElementById('btnModeAI');
+            const aiSettings = document.getElementById('aiSettings');
+            const blackName = document.getElementById('blackPlayerName');
+            const whiteName = document.getElementById('whitePlayerName');
+
+            if (mode === 'pvp') {
+                btnPvP.className = "px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white shadow transition hover:bg-indigo-500";
+                btnAI.className = "px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600";
+                aiSettings.classList.add('hidden');
+                blackName.innerText = 'Negras (Jugador 2)';
+                whiteName.innerText = 'Blancas (Jugador 1)';
+            } else {
+                btnAI.className = "px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white shadow transition hover:bg-indigo-500";
+                btnPvP.className = "px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600";
+                aiSettings.classList.remove('hidden');
+                blackName.innerText = 'Ordenador (IA)';
+                whiteName.innerText = 'Blancas (Tú)';
+            }
+        }
+
+        function setAIDifficultyDirect(level) {
+            aiDifficulty = level;
+            for (let i = 1; i <= 3; i++) {
+                const btn = document.getElementById(`diff${i}`);
+                if (i === level) {
+                    btn.className = "py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white transition";
+                } else {
+                    btn.className = "py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-slate-300 transition hover:bg-slate-600";
+                }
+            }
+        }
+
+        function setTimeControlDirect(minutes) {
+            initialTimeMinutes = minutes;
+            whiteTimeSeconds = minutes * 60;
+            blackTimeSeconds = minutes * 60;
+
+            [1, 3, 5, 10].forEach(m => {
+                const btn = document.getElementById(`tc${m}`);
+                if (btn) {
+                    if (m === minutes) {
+                        btn.className = "py-1.5 font-medium rounded-lg bg-indigo-600 text-white transition";
+                    } else {
+                        btn.className = "py-1.5 font-medium rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition";
+                    }
+                }
+            });
+        }
+
+        // Configurar control de tiempo rápido desde el panel derecho
+        function setTimeControl(minutes, tcId) {
+            setTimeControlDirect(minutes);
+            resetGame();
+        }
+
+        // Iniciar bucle del reloj
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            isTimerRunning = true;
+            isTimerPaused = false;
+
+            timerInterval = setInterval(() => {
+                if (isTimerPaused || game.game_over()) return;
+
+                if (game.turn() === 'w') {
+                    if (whiteTimeSeconds > 0) {
+                        whiteTimeSeconds--;
+                        if (whiteTimeSeconds === 0) {
+                            handleTimeout('Negras');
+                        }
+                    }
+                } else {
+                    if (blackTimeSeconds > 0) {
+                        blackTimeSeconds--;
+                        if (blackTimeSeconds === 0) {
+                            handleTimeout('Blancas');
+                        }
+                    }
+                }
+                updateTimerDisplay();
+            }, 1000);
+        }
+
+        function toggleTimerPause() {
+            if (game.game_over()) return;
+            isTimerPaused = !isTimerPaused;
+            const btn = document.getElementById('btnPauseTimer');
+            if (isTimerPaused) {
+                btn.innerHTML = '<i class="fa-solid fa-play mr-1"></i>Reanudar';
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-pause mr-1"></i>Pausar';
+            }
+        }
+
+        function updateTimerDisplay() {
+            const whiteEl = document.getElementById('whiteTimer');
+            const blackEl = document.getElementById('blackTimer');
+
+            whiteEl.innerText = formatTime(whiteTimeSeconds);
+            blackEl.innerText = formatTime(blackTimeSeconds);
+
+            if (whiteTimeSeconds <= 30) {
+                whiteEl.classList.add('clock-warning');
+            } else {
+                whiteEl.classList.remove('clock-warning');
+            }
+
+            if (blackTimeSeconds <= 30) {
+                blackEl.classList.add('clock-warning');
+            } else {
+                blackEl.classList.remove('clock-warning');
+            }
+        }
+
+        function formatTime(totalSeconds) {
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function handleTimeout(winnerName) {
+            clearInterval(timerInterval);
+            isTimerRunning = false;
+            showGameOverModal('¡Tiempo Agotado!', `Las ${winnerName.toLowerCase()} ganan por tiempo.`);
+        }
+
+        // Renderizar tablero de ajedrez completo
+        function renderBoard() {
+            const boardEl = document.getElementById('chessboard');
+            boardEl.innerHTML = '';
+
+            const boardState = game.board();
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const squareId = String.fromCharCode(97 + c) + (8 - r);
+                    const squareEl = document.createElement('div');
+                    
+                    const isLight = (r + c) % 2 === 0;
+                    squareEl.className = `square ${isLight ? 'light' : 'dark'}`;
+
+                    if (squareId === selectedSquare) {
+                        squareEl.classList.add('selected');
+                    }
+
+                    const moveMatch = legalMoves.find(m => m.to === squareId);
+                    if (moveMatch) {
+                        if (moveMatch.captured) {
+                            squareEl.classList.add('highlight-capture');
+                        } else {
+                            squareEl.classList.add('highlight');
+                        }
+                    }
+
+                    const piece = boardState[r][c];
+                    if (piece) {
+                        const pieceSpan = document.createElement('span');
+                        pieceSpan.className = `piece font-bold`;
+                        pieceSpan.innerHTML = pieceSymbols[piece.type.toUpperCase() === piece.type && piece.color === 'w' ? piece.type.toUpperCase() : piece.type];
+                        if(piece.color === 'w') {
+                            pieceSpan.style.color = '#ffffff';
+                            pieceSpan.style.textShadow = '0 1px 3px rgba(0,0,0,0.8)';
+                        } else {
+                            pieceSpan.style.color = '#0f172a';
+                            pieceSpan.style.textShadow = '0 1px 2px rgba(255,255,255,0.2)';
+                        }
+                        squareEl.appendChild(pieceSpan);
+                    }
+
+                    squareEl.addEventListener('click', () => handleSquareClick(squareId));
+                    boardEl.appendChild(squareEl);
+                }
+            }
+        }
+
+        function handleSquareClick(squareId) {
+            if (gameMode === 'ai' && game.turn() === 'b' && !game.game_over()) return;
+
+            const piece = game.get(squareId);
+
+            if (selectedSquare) {
+                const move = legalMoves.find(m => m.to === squareId);
+                if (move) {
+                    executeMove(move);
+                    selectedSquare = null;
+                    legalMoves = [];
+                    renderBoard();
+                    updateGameStatus();
+
+                    if (gameMode === 'ai' && !game.game_over() && game.turn() === 'b') {
+                        setTimeout(makeAIMove, 400);
+                    }
+                    return;
+                }
+            }
+
+            if (piece && piece.color === game.turn()) {
+                selectedSquare = squareId;
+                legalMoves = game.moves({ square: squareId, verbose: true });
+            } else {
+                selectedSquare = null;
+                legalMoves = [];
+            }
+            renderBoard();
+        }
+
+        function executeMove(moveObj) {
+            game.move(moveObj);
+            updateMoveHistory();
+            if (!isTimerRunning && !game.game_over()) {
+                startTimer();
+            }
+            checkGameOverStatus();
+        }
+
+        function checkGameOverStatus() {
+            if (game.game_over()) {
+                clearInterval(timerInterval);
+                isTimerRunning = false;
+                let title = '¡Partida Finalizada!';
+                let msg = 'Tablas o fin de partida.';
+                if (game.in_checkmate()) {
+                    title = '¡Jaque Mate!';
+                    const winner = game.turn() === 'w' ? 'Negras' : 'Blancas';
+                    msg = `¡Las ${winner.toLowerCase()} han ganado por jaque mate!`;
+                } else if (game.in_draw()) {
+                    title = '¡Empate!';
+                    msg = 'La partida ha terminado en tablas.';
+                }
+                showGameOverModal(title, msg);
+            }
+        }
+
+        function updateGameStatus() {
+            const statusEl = document.getElementById('gameStatus');
+            const subStatusEl = document.getElementById('gameSubStatus');
+
+            if (game.game_over()) {
+                statusEl.innerText = "Partida Terminada";
+                subStatusEl.innerText = "Reinicia para jugar de nuevo";
+                return;
+            }
+
+            const turnName = game.turn() === 'w' ? 'Blancas' : 'Negras';
+            statusEl.innerText = `Turno de las ${turnName}`;
+            if (game.in_check()) {
+                subStatusEl.innerHTML = '<span class="text-rose-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>¡Jaque al rey!</span>';
+            } else {
+                subStatusEl.innerText = selectedSquare ? 'Selecciona la casilla destino' : 'Selecciona una pieza para mover';
+            }
+        }
+
+        function updateMoveHistory() {
+            const historyEl = document.getElementById('moveHistory');
+            const history = game.history({ verbose: true });
+            historyEl.innerHTML = '';
+
+            for (let i = 0; i < history.length; i += 2) {
+                const rowNum = Math.floor(i / 2) + 1;
+                const whiteMove = history[i] ? history[i].san : '';
+                const blackMove = history[i+1] ? history[i+1].san : '';
+
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'flex justify-between items-center py-1 px-2 hover:bg-slate-800 rounded';
+                rowDiv.innerHTML = `
+                    <span class="text-slate-500 font-semibold w-6">${rowNum}.</span>
+                    <span class="w-20 font-medium text-slate-200">${whiteMove}</span>
+                    <span class="w-20 font-medium text-slate-300">${blackMove}</span>
+                `;
+                historyEl.appendChild(rowDiv);
+            }
+            historyEl.scrollTop = historyEl.scrollHeight;
+        }
+
+        function makeAIMove() {
+            if (game.game_over()) return;
+            
+            const possibleMoves = game.moves({ verbose: true });
+            if (possibleMoves.length === 0) return;
+
+            let selectedMove;
+
+            if (aiDifficulty === 1) {
+                selectedMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+            } else {
+                let captures = possibleMoves.filter(m => m.captured);
+                if (captures.length > 0 && aiDifficulty >= 2) {
+                    selectedMove = captures[Math.floor(Math.random() * captures.length)];
+                } else {
+                    selectedMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+                }
+            }
+
+            game.move(selectedMove);
+            renderBoard();
+            updateMoveHistory();
+            updateGameStatus();
+            checkGameOverStatus();
+        }
+
+        function resetGame() {
+            if (timerInterval) clearInterval(timerInterval);
+            isTimerRunning = false;
+            isTimerPaused = false;
+            whiteTimeSeconds = initialTimeMinutes * 60;
+            blackTimeSeconds = initialTimeMinutes * 60;
+            
+            game.reset();
+            selectedSquare = null;
+            legalMoves = [];
+            renderBoard();
+            updateMoveHistory();
+            updateGameStatus();
+            updateTimerDisplay();
+            closeModal();
+            
+            const btnPause = document.getElementById('btnPauseTimer');
+            if (btnPause) btnPause.innerHTML = '<i class="fa-solid fa-pause mr-1"></i>Pausar';
+        }
+
+        function undoMove() {
+            if (gameMode === 'ai') {
+                game.undo();
+                game.undo();
+            } else {
+                game.undo();
+            }
+            selectedSquare = null;
+            legalMoves = [];
+            renderBoard();
+            updateMoveHistory();
+            updateGameStatus();
+        }
+
+        function showGameOverModal(title, message) {
+            document.getElementById('gameOverTitle').innerText = title;
+            document.getElementById('gameOverMessage').innerText = message;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('gameOverModal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
